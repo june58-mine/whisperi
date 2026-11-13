@@ -12,7 +12,7 @@ import {
   getAgentAliases,
   setAgentAliases as setAgentAliasesApi,
 } from "@/services/tauriApi";
-import type { EnhancementIntensity } from "@/config/prompts";
+import type { EnhancementIntensity, PromptOverrides } from "@/config/prompts";
 import { migrateRetiredModel } from "@/config/retiredModels";
 import type { DictionaryEntry } from "@/models/dictionary";
 
@@ -34,6 +34,7 @@ export interface Settings {
   reasoningModel: string;
   reasoningProvider: string;
   enhancementIntensity: EnhancementIntensity;
+  promptOverrides: PromptOverrides;
   useCustomPrompt: boolean;
   customSystemPrompt: string;
 
@@ -92,6 +93,7 @@ const DEFAULTS: Settings = {
   reasoningModel: "gpt-5.6-terra",
   reasoningProvider: "openai",
   enhancementIntensity: "standard",
+  promptOverrides: {},
   useCustomPrompt: false,
   customSystemPrompt: "",
   autoPaste: true,
@@ -124,7 +126,7 @@ const STORE_KEYS = [
   "cloudTranscriptionProvider", "cloudTranscriptionModel",
   "dictationMode", "liveTranscriptionProvider", "liveTranscriptionModel", "liveEnhancement", "liveLastError",
   "useReasoningModel", "reasoningModel", "reasoningProvider", "reasoningLastError", "enhancementIntensity",
-  "useCustomPrompt", "customSystemPrompt",
+  "promptOverrides", "useCustomPrompt", "customSystemPrompt",
   "autoPaste", "soundEnabled", "dictationKey", "activationMode",
   "selectedMicDeviceId", "debugMode", "uiLanguage",
 ] as const satisfies readonly (keyof Settings)[];

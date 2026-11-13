@@ -1,7 +1,8 @@
 import promptData from "./promptData.json";
-import { getBilingualInstruction, getLanguageInstruction } from "../utils/languageSupport";
+import { getBilingualInstruction, getLanguageInstruction, isKoreanLanguage } from "../utils/languageSupport";
 
 export type EnhancementIntensity = "light" | "standard" | "full";
+export type PromptOverrides = Partial<Record<EnhancementIntensity, string>>;
 
 const PROMPT_VARIANTS: Record<EnhancementIntensity, string> = {
   // Light appends the punctuation block instead of prefixing it: the Light
@@ -19,6 +20,31 @@ const PROMPT_VARIANTS: Record<EnhancementIntensity, string> = {
   full: promptData.PUNCTUATION_RESTORATION_PROMPT
     + "\n\n" + promptData.USER_VISIBLE_PROMPT_FULL,
 };
+
+const PROMPT_VARIANTS_KO: Record<EnhancementIntensity, string> = {
+  light: promptData.USER_VISIBLE_PROMPT_LIGHT_KO
+    + "\n\n" + promptData.PUNCTUATION_RESTORATION_PROMPT_KO
+    + "\n\n" + promptData.PUNCTUATION_RESTORATION_LIGHT_RIDER_KO,
+  standard: promptData.PUNCTUATION_RESTORATION_PROMPT_KO
+    + "\n\n" + promptData.USER_VISIBLE_PROMPT_STANDARD_KO,
+  full: promptData.PUNCTUATION_RESTORATION_PROMPT_KO
+    + "\n\n" + promptData.USER_VISIBLE_PROMPT_FULL_KO,
+};
+
+/** Select the dedicated Korean prompt presets when Korean is active via output
+ *  language, bilingual pair, or auto-mode UI language. */
+export function shouldUseKoreanPrompts(opts: {
+  language?: string | null;
+  languagePair?: readonly [string, string];
+  uiLanguage?: string | null;
+}): boolean {
+  if (isKoreanLanguage(opts.language)) return true;
+  if (opts.languagePair?.some((l) => isKoreanLanguage(l))) return true;
+  if ((!opts.language || opts.language === "auto") && isKoreanLanguage(opts.uiLanguage)) {
+    return true;
+  }
+  return false;
+}
 
 const CHAT_SYSTEM_PROMPT = promptData.CHAT_SYSTEM_PROMPT;
 
@@ -141,9 +167,13 @@ export function getSystemPrompt(
   customPrompt?: string,
   intensity?: EnhancementIntensity,
   languagePair?: readonly [string, string],
+  promptOverrides?: PromptOverrides,
+  uiLanguage?: string,
 ): string {
   const mode = intensity ?? "standard";
   const hasCustomPrompt = Boolean(customPrompt?.trim());
+  const overridePrompt = promptOverrides?.[mode];
+  const hasOverridePrompt = !hasCustomPrompt && Boolean(overridePrompt?.trim());
   const profile =
     mode === "light" && !hasCustomPrompt
       ? LIGHT_CLEANUP_PROFILE
@@ -157,17 +187,24 @@ export function getSystemPrompt(
   // last and win on recency if they deliberately suppress punctuation. The
   // Light rider is deliberately omitted: it reconciles with Light's
   // preserve-first body, which a custom prompt has replaced.
+  const useKorean = shouldUseKoreanPrompts({ language, languagePair, uiLanguage });
+  const defaultVariant = (useKorean ? PROMPT_VARIANTS_KO : PROMPT_VARIANTS)[mode];
   const userPart = hasCustomPrompt
     ? promptData.PUNCTUATION_RESTORATION_PROMPT + "\n\n" + customPrompt!
-    : PROMPT_VARIANTS[mode];
+    : hasOverridePrompt
+      ? overridePrompt!.trim()
+      : defaultVariant;
   const prompt = profile.internalPrompt.replace(/\{\{agentName\}\}/g, name)
     + "\n\n" + userPart.replace(/\{\{agentName\}\}/g, name);
   return appendPromptExtras(prompt, customDictionary, language, profile, languagePair);
 }
 
-/** Get the visible prompt text for a given intensity level. */
-export function getVisiblePrompt(intensity: EnhancementIntensity): string {
-  return PROMPT_VARIANTS[intensity];
+/** Get the visible default prompt text for a given intensity level. */
+export function getVisiblePrompt(
+  intensity: EnhancementIntensity,
+  useKorean = false,
+): string {
+  return (useKorean ? PROMPT_VARIANTS_KO : PROMPT_VARIANTS)[intensity];
 }
 
 /**

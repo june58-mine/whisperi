@@ -25,6 +25,14 @@ fn is_kana(c: char) -> bool {
         || (0xFF66..=0xFF9F).contains(&cp) // Halfwidth katakana
 }
 
+/// Check if a character is in the Hangul syllable or Jamo blocks used by Korean.
+fn is_hangul(c: char) -> bool {
+    let cp = c as u32;
+    (0xAC00..=0xD7AF).contains(&cp)
+        || (0x1100..=0x11FF).contains(&cp)
+        || (0x3130..=0x318F).contains(&cp)
+}
+
 fn is_half_width_punct(c: char) -> bool {
     matches!(c, ',' | '.' | '?' | '!' | ':' | ';')
 }
@@ -243,17 +251,25 @@ fn should_convert_to_simplified(text: &str, language: Option<&str>) -> bool {
     }
 }
 
+fn has_base_subtag(lang: &str, expected: &str) -> bool {
+    let base = lang.split(['-', '_']).next().unwrap_or(lang);
+    base.eq_ignore_ascii_case(expected)
+}
+
 /// Return true when `lang` represents any Chinese variant (`zh`, `zh-CN`,
 /// `zh_TW`, …). Comparison is case-insensitive on the base subtag.
 fn is_chinese_language(lang: &str) -> bool {
-    let base = lang.split(['-', '_']).next().unwrap_or(lang);
-    base.eq_ignore_ascii_case("zh")
+    has_base_subtag(lang, "zh")
 }
 
 /// Return true for English and its regional variants (`en`, `en-US`, `en_GB`, …).
 fn is_english_language(lang: &str) -> bool {
-    let base = lang.split(['-', '_']).next().unwrap_or(lang);
-    base.eq_ignore_ascii_case("en")
+    has_base_subtag(lang, "en")
+}
+
+/// Return true for Korean and its regional variants (`ko`, `ko-KR`, …).
+fn is_korean_language(lang: &str) -> bool {
+    has_base_subtag(lang, "ko")
 }
 
 /// Map CJK small form variants (U+FE50–U+FE57), which Whisper sometimes emits
@@ -274,20 +290,26 @@ fn normalize_small_forms(text: &str) -> String {
 }
 
 /// Apply the language-aware text post-processing pipeline. Explicit English
-/// output uses ASCII punctuation, while Chinese/auto output retains the CJK
-/// punctuation safety net; Traditional→Simplified conversion then runs when
-/// appropriate for the configured `language`. This is the single entry point
-/// all transcription and reasoning call sites should use.
+/// and Korean (Han-free) output uses ASCII half-width punctuation, while
+/// Chinese/auto output retains the CJK punctuation safety net;
+/// Traditional→Simplified conversion then runs when appropriate for the
+/// configured `language`. This is the single entry point all transcription and
+/// reasoning call sites should use.
 ///
 /// - CJK small-form marks are mapped to standard full-width marks first.
-/// - Explicit English converts accidental Chinese full-width marks to ASCII.
+/// - Explicit English and Korean/Hangul-only text convert accidental CJK
+///   full-width marks (`。`, `？`, `！`, `，`, `：`, `；`) to ASCII.
 /// - All other modes run Han-adjacent CJK punctuation normalization.
 /// - T→S conversion is gated by `should_convert_to_simplified`.
 pub fn finalize_chinese_text(text: &str, language: Option<&str>) -> String {
     let text = normalize_small_forms(text);
-    let punct = match language {
-        Some(lang) if is_english_language(lang) => normalize_english_punctuation(&text),
-        _ => normalize_cjk_punctuation(&text),
+    let is_english = language.is_some_and(is_english_language);
+    let is_korean_without_han = !text.chars().any(is_han)
+        && (language.is_some_and(is_korean_language) || text.chars().any(is_hangul));
+    let punct = if is_english || is_korean_without_han {
+        normalize_english_punctuation(&text)
+    } else {
+        normalize_cjk_punctuation(&text)
     };
     if should_convert_to_simplified(&punct, language) {
         convert_to_simplified(&punct)
@@ -895,6 +917,24 @@ mod tests {
         assert_eq!(
             finalize_chinese_text(input, Some("zh")),
             "我们今天去了商场，买了一些新衣服。然后又去了餐厅吃饭。"
+        );
+    }
+
+    #[test]
+    fn finalize_korean_normalizes_cjk_full_width_to_ascii() {
+        // Explicit Korean, bilingual Korean+English, and auto-detected Hangul
+        // must all convert accidental full-width CJK marks (。 ？ ！ ，) to ASCII.
+        assert_eq!(
+            finalize_chinese_text("이건 어떤 프롬프트가 수정하는 거야？ 잘 모르겠어。", Some("ko")),
+            "이건 어떤 프롬프트가 수정하는 거야? 잘 모르겠어."
+        );
+        assert_eq!(
+            finalize_for_languages("API 호출이 실패했어， 다시 해볼까？", Some("ko"), &["ko", "en-US"]),
+            "API 호출이 실패했어, 다시 해볼까?"
+        );
+        assert_eq!(
+            finalize_chinese_text("반각 마침표만 써야 해！", None),
+            "반각 마침표만 써야 해!"
         );
     }
 }

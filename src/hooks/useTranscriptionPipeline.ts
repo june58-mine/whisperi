@@ -15,7 +15,9 @@ import {
   TEMPERATURE_MAP,
   LENGTH_GUARD_MAP,
   type EnhancementIntensity,
+  type PromptOverrides,
 } from "@/config/prompts";
+import i18n from "@/i18n";
 import {
   dictionaryPromptHints,
   dictionaryTerms,
@@ -34,6 +36,8 @@ export interface TranscriptionSettings {
   reasoningModel: string | null;
   reasoningProvider: string | null;
   enhancementIntensity: EnhancementIntensity | null;
+  promptOverrides?: PromptOverrides | null;
+  uiLanguage?: string | null;
   autoPaste: boolean | null;
   useCustomPrompt: boolean | null;
   customSystemPrompt: string | null;
@@ -55,6 +59,8 @@ export async function loadTranscriptionSettings(): Promise<TranscriptionSettings
     reasoningModel,
     reasoningProvider,
     enhancementIntensity,
+    promptOverrides,
+    uiLanguage,
     autoPaste,
     useCustomPrompt,
     customSystemPrompt,
@@ -72,6 +78,8 @@ export async function loadTranscriptionSettings(): Promise<TranscriptionSettings
     getSetting<string>("reasoningModel"),
     getSetting<string>("reasoningProvider"),
     getSetting<EnhancementIntensity>("enhancementIntensity"),
+    getSetting<PromptOverrides>("promptOverrides"),
+    getSetting<string>("uiLanguage"),
     getSetting<boolean>("autoPaste"),
     getSetting<boolean>("useCustomPrompt"),
     getSetting<string>("customSystemPrompt"),
@@ -91,6 +99,8 @@ export async function loadTranscriptionSettings(): Promise<TranscriptionSettings
     reasoningModel,
     reasoningProvider,
     enhancementIntensity,
+    promptOverrides,
+    uiLanguage,
     autoPaste,
     useCustomPrompt,
     customSystemPrompt,
@@ -258,6 +268,8 @@ export async function enhance(
           : undefined,
         intensity,
         languagePair,
+        settings.promptOverrides ?? undefined,
+        settings.uiLanguage || i18n.language,
       );
   const userPrompt = getUserPrompt(rawText);
   const temperature = isChatMode ? undefined : TEMPERATURE_MAP[intensity];

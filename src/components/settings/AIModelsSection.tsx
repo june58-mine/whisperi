@@ -1,7 +1,12 @@
 import { useTranslation } from "react-i18next";
+import { RotateCcw } from "lucide-react";
 import { Toggle } from "@/components/ui/toggle";
 import { SettingsSection, SettingsRow } from "@/components/ui/SettingsSection";
-import { getVisiblePrompt, type EnhancementIntensity } from "@/config/prompts";
+import {
+  getVisiblePrompt,
+  shouldUseKoreanPrompts,
+  type EnhancementIntensity,
+} from "@/config/prompts";
 import { getReasoningProviders } from "./providerHelpers";
 import ProviderModelSelector from "./ProviderModelSelector";
 import type { SectionProps } from "./types";
@@ -9,7 +14,39 @@ import type { SectionProps } from "./types";
 const INTENSITIES: EnhancementIntensity[] = ["light", "standard", "full"];
 
 export default function AIModelsSection({ settings, update }: SectionProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const intensity = settings.enhancementIntensity ?? "standard";
+  const languagePair: readonly [string, string] | undefined =
+    settings.languageMode === "bilingual" && settings.preferredLanguage && settings.secondaryLanguage
+      ? [settings.preferredLanguage, settings.secondaryLanguage]
+      : undefined;
+  const activeLanguage =
+    settings.languageMode === "single" ? settings.preferredLanguage : undefined;
+  const useKoreanPrompt = shouldUseKoreanPrompts({
+    language: activeLanguage,
+    languagePair,
+    uiLanguage: settings.uiLanguage || i18n.language,
+  });
+  const defaultPrompt = getVisiblePrompt(intensity, useKoreanPrompt);
+  const overridePrompt = settings.promptOverrides?.[intensity];
+  const isPromptModified = overridePrompt !== undefined && overridePrompt !== defaultPrompt;
+
+  const handlePresetChange = (value: string) => {
+    const next = { ...settings.promptOverrides };
+    if (value === defaultPrompt) {
+      delete next[intensity];
+    } else {
+      next[intensity] = value;
+    }
+    update("promptOverrides", next);
+  };
+
+  const handleResetPreset = () => {
+    if (!settings.promptOverrides || settings.promptOverrides[intensity] === undefined) return;
+    const next = { ...settings.promptOverrides };
+    delete next[intensity];
+    update("promptOverrides", next);
+  };
   // When the user is in Live mode and has explicitly turned off "Polish text
   // on stop", enhancement isn't applied to any Live session. Visually disable
   // the entire AI Models tab to make the dependency obvious — re-enabled
@@ -145,15 +182,66 @@ export default function AIModelsSection({ settings, update }: SectionProps) {
           </div>
 
           {settings.useCustomPrompt ? (
-            <textarea
-              value={settings.customSystemPrompt}
-              onChange={(e) => update("customSystemPrompt", e.target.value)}
-              placeholder={t("enhancement.prompt.placeholder")}
-              className="w-full mt-3 px-3.5 py-3 text-sm bg-surface-1 border border-border rounded-control text-foreground placeholder:text-muted-foreground/60 resize-y min-h-[280px] flex-1 focus:outline-none focus:ring-1 focus:ring-primary/20 focus:border-border-active"
-            />
+            <div className="flex flex-col flex-1 min-h-0 mt-3">
+              <div className="flex items-center justify-end gap-2 mb-2">
+                <button
+                  type="button"
+                  onClick={() => update("customSystemPrompt", defaultPrompt)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-control bg-surface-1 border border-border text-muted-foreground hover:text-foreground hover:border-border-active transition-colors"
+                >
+                  {t("enhancement.prompt.loadDefault", { defaultValue: "Load Default Prompt" })}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => update("customSystemPrompt", "")}
+                  disabled={!settings.customSystemPrompt}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-control bg-surface-1 border border-border text-muted-foreground hover:text-foreground hover:border-border-active disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  {t("enhancement.prompt.clear", { defaultValue: "Clear" })}
+                </button>
+              </div>
+              <textarea
+                value={settings.customSystemPrompt}
+                onChange={(e) => update("customSystemPrompt", e.target.value)}
+                placeholder={t("enhancement.prompt.placeholder")}
+                className="w-full px-3.5 py-3 text-sm bg-surface-1 border border-border rounded-control text-foreground placeholder:text-muted-foreground/60 resize-y min-h-[280px] flex-1 focus:outline-none focus:ring-1 focus:ring-primary/20 focus:border-border-active leading-relaxed"
+              />
+            </div>
           ) : (
-            <div className="w-full mt-3 px-3.5 py-3 text-sm bg-surface-1 border border-border rounded-control text-muted-foreground/80 max-h-[50vh] overflow-y-auto whitespace-pre-wrap leading-relaxed">
-              {getVisiblePrompt(settings.enhancementIntensity ?? "standard")}
+            <div className="flex flex-col flex-1 min-h-0 mt-3">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="font-medium text-foreground/80">
+                    {t(`enhancement.intensity.${intensity}`)}
+                  </span>
+                  <span
+                    className={`px-2 py-0.5 rounded-full border ${
+                      isPromptModified
+                        ? "bg-primary/15 text-primary border-primary/30"
+                        : "bg-surface-1 text-muted-foreground border-border"
+                    }`}
+                  >
+                    {isPromptModified
+                      ? t("enhancement.prompt.modified", { defaultValue: "Modified" })
+                      : t("enhancement.prompt.defaultBadge", { defaultValue: "Default" })}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleResetPreset}
+                  disabled={overridePrompt === undefined}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-control bg-surface-1 border border-border text-muted-foreground hover:text-foreground hover:border-border-active disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  {t("enhancement.prompt.reset", { defaultValue: "Reset to Default" })}
+                </button>
+              </div>
+              <textarea
+                value={overridePrompt ?? defaultPrompt}
+                onChange={(e) => handlePresetChange(e.target.value)}
+                className="w-full px-3.5 py-3 text-sm bg-surface-1 border border-border rounded-control text-foreground resize-y min-h-[300px] flex-1 focus:outline-none focus:ring-1 focus:ring-primary/20 focus:border-border-active leading-relaxed"
+              />
             </div>
           )}
         </div>

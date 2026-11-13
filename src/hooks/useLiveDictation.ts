@@ -46,7 +46,7 @@ import {
   buildTranscriptionDictionary,
   type TranscriptionSettings,
 } from "./useTranscriptionPipeline";
-import type { EnhancementIntensity } from "@/config/prompts";
+import type { EnhancementIntensity, PromptOverrides } from "@/config/prompts";
 import {
   sendNotification,
   isPermissionGranted,
@@ -624,7 +624,8 @@ export function useLiveDictation({ onToast }: Options = {}) {
           const language = await resolveLiveLanguage();
           const [
             dict, aliases, cloudProvider, cloudModel,
-            useR, rModel, rProvider, intensity, autoPaste, useCustom, customPrompt, debugMode,
+            useR, rModel, rProvider, intensity, promptOverrides, uiLanguage,
+            autoPaste, useCustom, customPrompt, debugMode,
           ] = await Promise.all([
             getCustomDictionary(),
             getAgentAliases(),
@@ -634,6 +635,8 @@ export function useLiveDictation({ onToast }: Options = {}) {
             getSetting<string>("reasoningModel"),
             getSetting<string>("reasoningProvider"),
             getSetting<EnhancementIntensity>("enhancementIntensity"),
+            getSetting<PromptOverrides>("promptOverrides"),
+            getSetting<string>("uiLanguage"),
             getSetting<boolean>("autoPaste"),
             getSetting<boolean>("useCustomPrompt"),
             getSetting<string>("customSystemPrompt"),
@@ -644,7 +647,8 @@ export function useLiveDictation({ onToast }: Options = {}) {
             languageMode: null, secondaryLanguage: null,
             dictionary: dict,
             useReasoning: useR, reasoningModel: rModel, reasoningProvider: rProvider,
-            enhancementIntensity: intensity, autoPaste, useCustomPrompt: useCustom,
+            enhancementIntensity: intensity, promptOverrides, uiLanguage,
+            autoPaste, useCustomPrompt: useCustom,
             customSystemPrompt: customPrompt, agentName, agentAliases: aliases,
             debugMode,
           };
