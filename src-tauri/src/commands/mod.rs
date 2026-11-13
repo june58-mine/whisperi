@@ -3,6 +3,7 @@ pub mod audio;
 pub mod changelog;
 pub mod clipboard;
 pub mod database;
+pub mod hotkey;
 pub mod live;
 pub mod reasoning;
 pub mod settings;

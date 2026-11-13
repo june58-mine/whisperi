@@ -4,7 +4,6 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen, emit } from "@tauri-apps/api/event";
 import { Menu, MenuItem, PredefinedMenuItem } from "@tauri-apps/api/menu";
 import { getVersion } from "@tauri-apps/api/app";
-import { check } from "@tauri-apps/plugin-updater";
 import { sendNotification } from "@tauri-apps/plugin-notification";
 import { Mic } from "lucide-react";
 import { useDictation } from "@/hooks/useDictation";
@@ -63,18 +62,8 @@ function DictationOverlayInner() {
     })();
   }, [loaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Check for updates on startup and notify settings window
-  const [updateAvailable, setUpdateAvailable] = useState(false);
-  useEffect(() => {
-    check()
-      .then((update) => {
-        if (update) {
-          setUpdateAvailable(true);
-          emit("update-available", { version: update.version });
-        }
-      })
-      .catch(() => {}); // silently ignore network errors
-  }, []);
+  // Custom build: automatic upstream updates disabled so customizations are preserved
+  const updateAvailable = false;
 
   // Suspend hotkey while settings window is capturing a new shortcut
   const [hotkeyCapturing, setHotkeyCapturing] = useState(false);

@@ -2,6 +2,7 @@ mod audio;
 mod clipboard;
 mod commands;
 mod database;
+mod hotkey;
 pub(crate) mod http;
 mod reasoning;
 pub mod transcription;
@@ -9,7 +10,26 @@ pub mod transcription;
 use tauri::Manager;
 use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
+use tauri_plugin_store::StoreExt;
 use tauri_plugin_window_state::{StateFlags, WindowExt};
+
+const SETTINGS_STORE_FILE: &str = "settings.json";
+const SHOW_OVERLAY_KEY: &str = "showOverlay";
+
+fn read_show_overlay(app: &tauri::AppHandle) -> bool {
+    app.store(SETTINGS_STORE_FILE)
+        .ok()
+        .and_then(|store| store.get(SHOW_OVERLAY_KEY))
+        .and_then(|val| val.as_bool())
+        .unwrap_or(true)
+}
+
+fn save_show_overlay(app: &tauri::AppHandle, visible: bool) {
+    if let Ok(store) = app.store(SETTINGS_STORE_FILE) {
+        store.set(SHOW_OVERLAY_KEY, serde_json::Value::Bool(visible));
+        let _ = store.save();
+    }
+}
 
 /// Override the Windows minimum window size constraint for a given window.
 /// Windows enforces a minimum width (~136px at 100% DPI) even for undecorated windows.
@@ -128,8 +148,9 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            // Focus main window when a second instance is launched
-            if let Some(window) = app.get_webview_window("main") {
+            // Focus overlay when shown, or open settings if overlay is hidden
+            let target = if read_show_overlay(app) { "main" } else { "settings" };
+            if let Some(window) = app.get_webview_window(target) {
                 let _ = window.show();
                 let _ = window.unminimize();
                 let _ = window.set_focus();
@@ -166,16 +187,22 @@ pub fn run() {
             let app_handle = app.handle().clone();
             database::init(&app_handle)?;
 
+            // Start native OS-level global keyboard hook (supports Ctrl+Win, single modifiers, etc.)
+            app.manage(hotkey::HotkeyManager::start(app_handle.clone()));
+
+            let show_overlay = read_show_overlay(&app_handle);
+
             // Restore the overlay location without restoring its fixed size.
             if let Some(main_window) = app.get_webview_window("main") {
                 // Keep the user's chosen monitor/location without allowing a stale or
                 // mixed-DPI window-state entry to override the configured 100x100 size.
                 let _ = main_window.restore_state(StateFlags::POSITION);
                 #[cfg(windows)]
-                {
-                    // Override Windows' minimum window size for the overlay.
-                    override_min_window_size(&main_window, 100, 100);
+                override_min_window_size(&main_window, 100, 100);
+                if show_overlay {
                     let _ = main_window.show();
+                } else {
+                    let _ = main_window.hide();
                 }
             }
 
@@ -186,7 +213,7 @@ pub fn run() {
 
             // System tray
             let show = CheckMenuItemBuilder::with_id("show", "Show")
-                .checked(true)
+                .checked(show_overlay)
                 .build(app)?;
             let settings = MenuItemBuilder::with_id("settings", "Preferences").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
@@ -207,14 +234,15 @@ pub fn run() {
                     "show" => {
                         if let Some(window) = app.get_webview_window("main") {
                             let visible = window.is_visible().unwrap_or(false);
-                            if visible {
-                                let _ = window.hide();
-                                let _ = show.set_checked(false);
-                            } else {
+                            let next_visible = !visible;
+                            if next_visible {
                                 let _ = window.show();
                                 let _ = window.set_focus();
-                                let _ = show.set_checked(true);
+                            } else {
+                                let _ = window.hide();
                             }
+                            let _ = show.set_checked(next_visible);
+                            save_show_overlay(app, next_visible);
                         }
                     }
                     "settings" => {
@@ -250,6 +278,8 @@ pub fn run() {
             commands::database::delete_transcription,
             commands::database::clear_transcriptions,
             commands::database::get_stats,
+            commands::hotkey::configure_hotkey,
+            commands::hotkey::set_hotkey_capturing,
             commands::app::quit_app,
             commands::app::show_settings,
             commands::changelog::read_changelog,

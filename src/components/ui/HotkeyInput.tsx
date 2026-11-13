@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { emit } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
+import { emit, listen } from "@tauri-apps/api/event";
 
 interface HotkeyInputProps {
   value: string;
@@ -8,121 +9,114 @@ interface HotkeyInputProps {
   disabled?: boolean;
 }
 
-const MODIFIER_KEYS = new Set(["Control", "Shift", "Alt", "Meta"]);
-
-const CODE_TO_KEY: Record<string, string> = {
-  Backquote: "`", Minus: "-", Equal: "=",
-  BracketLeft: "[", BracketRight: "]", Backslash: "\\",
-  Semicolon: ";", Quote: "'", Comma: ",", Period: ".", Slash: "/",
-  Space: "Space", Enter: "Enter", Backspace: "Backspace", Tab: "Tab",
-  Escape: "Escape", Delete: "Delete", Insert: "Insert",
-  Home: "Home", End: "End", PageUp: "PageUp", PageDown: "PageDown",
-  ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right",
-  NumpadAdd: "NumpadAdd", NumpadSubtract: "NumpadSubtract",
-  NumpadMultiply: "NumpadMultiply", NumpadDivide: "NumpadDivide",
-  NumpadEnter: "NumpadEnter", NumpadDecimal: "NumpadDecimal",
+const DISPLAY_TOKEN_MAP: Record<string, string> = {
+  CommandOrControl: "Ctrl",
+  Control: "Ctrl",
+  Super: "Win",
+  Meta: "Win",
+  LeftCtrl: "Left Ctrl",
+  RightCtrl: "Right Ctrl",
+  LeftAlt: "Left Alt",
+  RightAlt: "Right Alt",
+  LeftShift: "Left Shift",
+  RightShift: "Right Shift",
+  LeftWin: "Left Win",
+  RightWin: "Right Win",
+  Hangul: "한/영",
+  Hanja: "한자",
 };
-
-// Add digit keys
-for (let i = 0; i <= 9; i++) {
-  CODE_TO_KEY[`Digit${i}`] = String(i);
-  CODE_TO_KEY[`Numpad${i}`] = `Numpad${i}`;
-}
-
-// Add letter keys
-for (let c = 65; c <= 90; c++) {
-  const letter = String.fromCharCode(c);
-  CODE_TO_KEY[`Key${letter}`] = letter;
-}
-
-// Add function keys
-for (let i = 1; i <= 24; i++) {
-  CODE_TO_KEY[`F${i}`] = `F${i}`;
-}
-
-function mapKeyboardEvent(e: KeyboardEvent): string | null {
-  if (MODIFIER_KEYS.has(e.key)) return null; // Modifier alone, wait for more
-
-  const baseKey = CODE_TO_KEY[e.code];
-  if (!baseKey) return null;
-
-  const parts: string[] = [];
-  if (e.ctrlKey || e.metaKey) parts.push("CommandOrControl");
-  if (e.altKey) parts.push("Alt");
-  if (e.shiftKey) parts.push("Shift");
-  parts.push(baseKey);
-
-  return parts.join("+");
-}
 
 function formatHotkeyDisplay(hotkey: string): { parts: string[] } {
   if (!hotkey) return { parts: [] };
 
   return {
-    parts: hotkey.split("+").map((part) => {
-      if (part === "CommandOrControl") {
-        return navigator.platform.includes("Mac") ? "Cmd" : "Ctrl";
-      }
-      return part;
-    }),
+    parts: hotkey
+      .split("+")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => DISPLAY_TOKEN_MAP[part] ?? part),
   };
 }
 
 export function HotkeyInput({ value, onChange, disabled }: HotkeyInputProps) {
   const { t } = useTranslation();
   const [listening, setListening] = useState(false);
+  const [preview, setPreview] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const startListening = useCallback(() => {
+  const toggleListening = useCallback(() => {
     if (disabled) return;
-    setListening(true);
+    setPreview("");
+    setListening((prev) => !prev);
   }, [disabled]);
 
-  // Notify other windows when capture mode changes
+  // Notify overlay & Rust keyboard hook when capture mode changes
   useEffect(() => {
     emit("hotkey-capturing", { capturing: listening });
+    invoke("set_hotkey_capturing", { capturing: listening }).catch(() => {});
   }, [listening]);
 
-  // Handle key capture
+  // Ensure Rust hook exits capture mode if component unmounts while listening
+  useEffect(() => {
+    return () => {
+      emit("hotkey-capturing", { capturing: false });
+      invoke("set_hotkey_capturing", { capturing: false }).catch(() => {});
+    };
+  }, []);
+
+  // Listen for native low-level hook capture events so modifier-only chords
+  // like Ctrl+Win, single modifiers, and reserved OS combos work seamlessly.
   useEffect(() => {
     if (!listening) return;
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
+    const unlistenPreview = listen<{ hotkey: string }>(
+      "hotkey-capture-preview",
+      (event) => {
+        setPreview(event.payload.hotkey);
+      },
+    );
 
-      if (e.key === "Escape") {
+    const unlistenCaptured = listen<{ hotkey: string }>(
+      "hotkey-captured",
+      (event) => {
+        if (event.payload.hotkey) {
+          onChange(event.payload.hotkey);
+        }
+        setPreview("");
         setListening(false);
-        return;
-      }
+      },
+    );
 
-      const hotkey = mapKeyboardEvent(e);
-      if (hotkey) {
-        onChange(hotkey);
-        setListening(false);
-      }
-    };
+    const unlistenCancelled = listen("hotkey-capture-cancelled", () => {
+      setPreview("");
+      setListening(false);
+    });
 
     const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node)
+      ) {
+        setPreview("");
         setListening(false);
       }
     };
 
-    window.addEventListener("keydown", handleKeyDown, true);
     window.addEventListener("mousedown", handleClickOutside);
     return () => {
-      window.removeEventListener("keydown", handleKeyDown, true);
       window.removeEventListener("mousedown", handleClickOutside);
+      unlistenPreview.then((fn) => fn());
+      unlistenCaptured.then((fn) => fn());
+      unlistenCancelled.then((fn) => fn());
     };
   }, [listening, onChange]);
 
-  const { parts } = formatHotkeyDisplay(value);
+  const { parts } = formatHotkeyDisplay(listening && preview ? preview : value);
 
   return (
     <div
       ref={containerRef}
-      onClick={startListening}
+      onClick={toggleListening}
       className={`flex items-center justify-center gap-2 px-4 py-3 min-h-[48px] rounded-control border cursor-pointer transition-all duration-150 ${
         listening
           ? "border-primary bg-surface-2 ring-1 ring-primary/30"
@@ -132,9 +126,22 @@ export function HotkeyInput({ value, onChange, disabled }: HotkeyInputProps) {
       }`}
     >
       {listening ? (
-        <span className="text-sm text-muted-foreground animate-pulse">
-          {t("hotkey.listening")}
-        </span>
+        preview ? (
+          <div className="flex items-center gap-1.5">
+            {parts.map((part, i) => (
+              <span key={i} className="flex items-center gap-1.5">
+                {i > 0 && <span className="text-xs text-muted-foreground/50">+</span>}
+                <kbd className="inline-flex items-center justify-center min-w-[28px] h-7 px-2 rounded-inner bg-primary/15 border border-primary/40 text-sm font-medium text-primary shadow-sm">
+                  {part}
+                </kbd>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <span className="text-sm text-muted-foreground animate-pulse">
+            {t("hotkey.listening")}
+          </span>
+        )
       ) : parts.length > 0 ? (
         <div className="flex items-center gap-1.5">
           {parts.map((part, i) => (
