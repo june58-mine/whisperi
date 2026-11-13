@@ -17,13 +17,21 @@
   <p>A fast, modern desktop dictation app built with <strong>Tauri 2.x</strong>. Speak naturally and have your words transcribed, cleaned up, and pasted into any application — including CLI tools like <strong>Claude Code</strong> and <strong>Codex</strong>.</p>
 </p>
 
-## Installation
+## Custom Fork Changes (`june58-mine/whisperi`)
 
-```powershell
-winget install xarthurx.Whisperi
-```
+This fork of [xarthurx/whisperi](https://github.com/xarthurx/whisperi) adds Windows usability enhancements:
 
-Or download the latest installer from the [Releases](https://github.com/xarthurx/whisperi/releases/latest) page.
+- **Persistent Tray `Show` Toggle (`showOverlay`)** — Unchecking `Show` in the system tray hides the floating microphone button and remembers your preference across app restarts. When hidden, launching the app again opens Preferences instead of forcing the overlay back on screen.
+- **Arbitrary & Modifier-Only Hotkeys (`WH_KEYBOARD_LL`)** — Uses a native Windows low-level keyboard hook so combinations like `Ctrl + Win`, single modifier keys (`Right Ctrl`, `Right Alt`, `Win`, etc.), Korean IME keys (`한/영`, `한자`), and any chord work in both **Tap** and **Push** modes without accidentally triggering the Start Menu.
+- **Custom Build Protection** — Automatic upstream updater checks are disabled so official releases do not overwrite this custom build.
+
+> **한국어 요약:** 트레이 메뉴의 `Show` 체크 해제 상태가 앱 재시작 후에도 유지되며, `Ctrl + Win`이나 단일 보조키(`Right Ctrl`, `Right Alt`, `한/영` 등)를 포함해 원하는 모든 키를 단축키로 자유롭게 등록해 사용할 수 있는 커스텀 포크입니다.
+
+## Installation (This Fork)
+
+Download the latest Windows installer (`Whisperi_0.9.1_x64-setup.exe`) or standalone `whisperi.exe` from the [Fork Releases](https://github.com/june58-mine/whisperi/releases/latest) page.
+
+*(To install the original upstream version instead: `winget install xarthurx.Whisperi` or [upstream Releases](https://github.com/xarthurx/whisperi/releases/latest).)*
 
 ## Why Cloud-First?
 
