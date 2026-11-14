@@ -379,6 +379,7 @@ impl HotkeyManager {
             guard.enabled = enabled && !guard.tokens.is_empty();
             guard.active = false;
             guard.need_win_menu_mask = false;
+            guard.pressed_vks.clear();
         }
     }
 
@@ -386,6 +387,7 @@ impl HotkeyManager {
         if let Ok(mut guard) = self.state.lock() {
             guard.capturing = capturing;
             guard.active = false;
+            guard.pressed_vks.clear();
             guard.capture_pressed.clear();
             guard.capture_peak.clear();
             if !capturing {
@@ -405,7 +407,8 @@ mod win_hook {
     use std::sync::{Arc, Mutex, OnceLock};
     use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
     use windows::Win32::UI::Input::KeyboardAndMouse::{
-        INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, SendInput, VIRTUAL_KEY,
+        GetAsyncKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, SendInput,
+        VIRTUAL_KEY,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         CallNextHookEx, DispatchMessageW, GetMessageW, HHOOK, KBDLLHOOKSTRUCT, LLKHF_INJECTED,
@@ -419,6 +422,11 @@ mod win_hook {
     }
 
     static HOOK_CTX: OnceLock<HookContext> = OnceLock::new();
+
+    fn is_vk_physically_down(vk: u32) -> bool {
+        let state = unsafe { GetAsyncKeyState(vk as i32) } as u16;
+        (state & 0x8000) != 0
+    }
 
     fn send_win_menu_mask_key() {
         let input = INPUT {
@@ -460,6 +468,10 @@ mod win_hook {
 
                     if let Ok(mut guard) = ctx.state.lock() {
                         if is_down {
+                            // Prune stale VKs whose key-up was missed (e.g. UAC, lock screen, elevated windows).
+                            guard
+                                .pressed_vks
+                                .retain(|&k| k == vk || is_vk_physically_down(k));
                             guard.pressed_vks.insert(vk);
                         } else if is_up {
                             guard.pressed_vks.remove(&vk);
@@ -499,6 +511,11 @@ mod win_hook {
                                 }
                             }
                         } else if guard.enabled && !guard.tokens.is_empty() {
+                            if guard.active && !all_tokens_pressed(&guard.tokens, &guard.pressed_vks)
+                            {
+                                guard.active = false;
+                                let _ = ctx.tx.try_send(OutboundEvent::HotkeyReleased);
+                            }
                             if is_down && !guard.active {
                                 if exact_tokens_match(&guard.tokens, &guard.pressed_vks) {
                                     guard.active = true;
@@ -598,5 +615,39 @@ mod tests {
 
         assert!(exact_tokens_match(&tokens, &pressed_ok));
         assert!(!exact_tokens_match(&tokens, &pressed_extra));
+    }
+
+    #[test]
+    fn configure_and_capture_clear_stale_pressed_state() {
+        let state = Arc::new(Mutex::new(HookRuntimeState {
+            pressed_vks: [0xA2, 0x0D].into_iter().collect(),
+            active: true,
+            need_win_menu_mask: true,
+            ..Default::default()
+        }));
+        let manager = HotkeyManager { state: state.clone() };
+
+        manager.configure("Ctrl+Win", true);
+        {
+            let guard = state.lock().unwrap();
+            assert!(guard.enabled);
+            assert_eq!(guard.tokens, vec![KeyToken::AnyCtrl, KeyToken::AnyWin]);
+            assert!(!guard.active);
+            assert!(!guard.need_win_menu_mask);
+            assert!(guard.pressed_vks.is_empty());
+        }
+
+        {
+            let mut guard = state.lock().unwrap();
+            guard.pressed_vks.insert(0x5B);
+            guard.active = true;
+        }
+        manager.set_capturing(true);
+        {
+            let guard = state.lock().unwrap();
+            assert!(guard.capturing);
+            assert!(!guard.active);
+            assert!(guard.pressed_vks.is_empty());
+        }
     }
 }

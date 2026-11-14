@@ -9,6 +9,7 @@ interface UseHotkeyOptions {
   onPushStart?: () => void;
   onPushEnd?: () => void;
   enabled?: boolean;
+  ready?: boolean;
 }
 
 export function useHotkey({
@@ -18,11 +19,13 @@ export function useHotkey({
   onPushStart,
   onPushEnd,
   enabled = true,
+  ready = true,
 }: UseHotkeyOptions) {
   const onToggleRef = useRef(onToggle);
   const onPushStartRef = useRef(onPushStart);
   const onPushEndRef = useRef(onPushEnd);
   const activationModeRef = useRef(activationMode);
+  const configuredRef = useRef(false);
 
   onToggleRef.current = onToggle;
   onPushStartRef.current = onPushStart;
@@ -55,6 +58,8 @@ export function useHotkey({
   }, []);
 
   useEffect(() => {
+    if (!ready) return;
+    configuredRef.current = true;
     const activeEnabled = Boolean(shortcut && enabled);
     invoke("configure_hotkey", {
       shortcut: shortcut || "",
@@ -62,12 +67,16 @@ export function useHotkey({
     }).catch((e) => {
       console.warn("Failed to configure native hotkey:", shortcut, e);
     });
+  }, [ready, shortcut, enabled]);
 
+  useEffect(() => {
     return () => {
+      if (!configuredRef.current) return;
+      configuredRef.current = false;
       invoke("configure_hotkey", {
         shortcut: "",
         enabled: false,
       }).catch(() => {});
     };
-  }, [shortcut, enabled]);
+  }, []);
 }

@@ -8,16 +8,17 @@ import SettingsPanel from "@/components/settings/SettingsPanel";
 
 type AppView = "overlay" | "settings";
 
-function App() {
-  const [view, setView] = useState<AppView>("overlay");
-  const { i18n } = useTranslation();
+function getInitialView(): AppView {
+  try {
+    return getCurrentWebviewWindow().label === "settings" ? "settings" : "overlay";
+  } catch {
+    return "overlay";
+  }
+}
 
-  useEffect(() => {
-    const label = getCurrentWebviewWindow().label;
-    if (label === "settings") {
-      setView("settings");
-    }
-  }, []);
+function App() {
+  const [view] = useState<AppView>(getInitialView);
+  const { i18n } = useTranslation();
 
   // Sync i18next language from stored setting on mount + cross-window changes
   useEffect(() => {

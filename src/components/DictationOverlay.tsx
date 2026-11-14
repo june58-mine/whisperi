@@ -82,6 +82,7 @@ function DictationOverlayInner() {
     onPushStart: () => start(settings.selectedMicDeviceId || undefined),
     onPushEnd: () => stop(),
     enabled: loaded && !!settings.dictationKey && !hotkeyCapturing,
+    ready: loaded,
   });
 
   // Right-click to open native context menu (renders outside the small webview)

@@ -15,6 +15,7 @@ use tauri_plugin_window_state::{StateFlags, WindowExt};
 
 const SETTINGS_STORE_FILE: &str = "settings.json";
 const SHOW_OVERLAY_KEY: &str = "showOverlay";
+const DICTATION_KEY: &str = "dictationKey";
 
 fn read_show_overlay(app: &tauri::AppHandle) -> bool {
     app.store(SETTINGS_STORE_FILE)
@@ -22,6 +23,14 @@ fn read_show_overlay(app: &tauri::AppHandle) -> bool {
         .and_then(|store| store.get(SHOW_OVERLAY_KEY))
         .and_then(|val| val.as_bool())
         .unwrap_or(true)
+}
+
+fn read_dictation_key(app: &tauri::AppHandle) -> Option<String> {
+    app.store(SETTINGS_STORE_FILE)
+        .ok()
+        .and_then(|store| store.get(DICTATION_KEY))
+        .and_then(|val| val.as_str().map(|s| s.trim().to_string()))
+        .filter(|s| !s.is_empty())
 }
 
 fn save_show_overlay(app: &tauri::AppHandle, visible: bool) {
@@ -188,7 +197,12 @@ pub fn run() {
             database::init(&app_handle)?;
 
             // Start native OS-level global keyboard hook (supports Ctrl+Win, single modifiers, etc.)
-            app.manage(hotkey::HotkeyManager::start(app_handle.clone()));
+            // Pre-configure from persisted settings so hotkeys work immediately on startup.
+            let hotkey_manager = hotkey::HotkeyManager::start(app_handle.clone());
+            if let Some(shortcut) = read_dictation_key(&app_handle) {
+                hotkey_manager.configure(&shortcut, true);
+            }
+            app.manage(hotkey_manager);
 
             let show_overlay = read_show_overlay(&app_handle);
 

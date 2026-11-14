@@ -1,12 +1,16 @@
 use crate::hotkey::HotkeyManager;
-use tauri::State;
+use tauri::{State, WebviewWindow};
 
 #[tauri::command]
 pub fn configure_hotkey(
+    window: WebviewWindow,
     manager: State<'_, HotkeyManager>,
     shortcut: String,
     enabled: bool,
 ) -> Result<(), String> {
+    if window.label() != "main" {
+        return Ok(());
+    }
     manager.configure(&shortcut, enabled);
     Ok(())
 }
